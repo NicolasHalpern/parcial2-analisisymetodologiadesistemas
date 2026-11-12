@@ -1,0 +1,62 @@
+{% extends "reparto/base.html" %}
+{# Administración del menú: productos, precios y stock. #}
+{% block titulo %}Menú{% endblock %}
+{% block encabezado %}Menú de la tienda online{% endblock %}
+{% block contenido %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card card-primary card-outline">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-plus-circle"></i> Agregar producto</h3></div>
+      <form method="post">{% csrf_token %}
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-3"><label class="form-label">Emoji</label><input name="emoji" class="form-control text-center" value="🍽️"></div>
+            <div class="col-9"><label class="form-label">Nombre *</label><input name="nombre" class="form-control" required maxlength="60"></div>
+            <div class="col-6"><label class="form-label">Categoría</label><input name="categoria" class="form-control" list="cats" placeholder="Pizzas"></div>
+            <div class="col-6"><label class="form-label">Precio *</label><input name="precio" type="number" min="0" step="50" class="form-control" required></div>
+            <div class="col-12"><label class="form-label">Descripción</label><input name="descripcion" class="form-control" maxlength="200"></div>
+          </div>
+          <datalist id="cats">{% regroup productos by categoria as grupos %}{% for g in grupos %}<option value="{{ g.grouper }}">{% endfor %}</datalist>
+        </div>
+        <div class="card-footer text-end"><button class="btn btn-primary">Agregar</button></div>
+      </form>
+    </div>
+    <a href="{% url 'tienda' %}" target="_blank" class="btn btn-outline-dark w-100"><i class="bi bi-shop"></i> Ver la tienda como cliente</a>
+  </div>
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-body p-0 table-responsive">
+        <table class="table align-middle mb-0">
+          <thead><tr><th></th><th>Producto</th><th>Categoría</th><th style="width:190px">Precio</th><th>Stock</th></tr></thead>
+          <tbody>
+          {% for p in productos %}
+            <tr class="{% if not p.disponible %}table-secondary{% endif %}">
+              <td class="fs-4">{{ p.emoji }}</td>
+              <td><div class="fw-semibold">{{ p.nombre }}</div><small class="text-secondary">{{ p.descripcion }}</small></td>
+              <td>{{ p.categoria }}</td>
+              <td>
+                <form method="post" class="input-group input-group-sm">{% csrf_token %}
+                  <input type="hidden" name="accion" value="precio"><input type="hidden" name="id" value="{{ p.id }}">
+                  <span class="input-group-text">$</span>
+                  <input name="precio" type="number" min="0" step="50" class="form-control" value="{{ p.precio|stringformat:'.0f' }}">
+                  <button class="btn btn-outline-secondary" title="Guardar precio"><i class="bi bi-check-lg"></i></button>
+                </form>
+              </td>
+              <td>
+                <form method="post">{% csrf_token %}
+                  <input type="hidden" name="accion" value="stock"><input type="hidden" name="id" value="{{ p.id }}">
+                  {% if p.disponible %}<button class="btn btn-sm btn-success">Disponible</button>
+                  {% else %}<button class="btn btn-sm btn-outline-secondary">Sin stock</button>{% endif %}
+                </form>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="text-center text-secondary py-4">Cargá tu menú o corré <code>python manage.py cargar_demo</code>.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

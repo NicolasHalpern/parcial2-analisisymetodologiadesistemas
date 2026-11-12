@@ -1,0 +1,27 @@
+{# Esqueleto simple para celular: lo usan la app del repartidor y el seguimiento del cliente. #}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="theme-color" content="#0d6efd">
+  <title>{% block titulo %}{% endblock %} · {{ comercio_nombre }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  {% include "reparto/_estilos.html" %}
+  <style> body { background:#f2f4f7; } .mapa { height: 320px; } #toasts { left: 1rem; right: 1rem; width: auto; } </style>
+</head>
+<body>
+  <nav class="navbar bg-primary" data-bs-theme="dark">
+    <div class="container"><span class="navbar-brand"><i class="bi bi-scooter"></i> {{ comercio_nombre }}</span>
+      <span class="navbar-text small">{% block subtitulo %}{% endblock %}</span></div>
+  </nav>
+  <div class="container py-3" style="max-width:640px">{% block contenido %}{% endblock %}</div>
+  <div id="toasts"></div>
+  {% csrf_token %}
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+  {% include "reparto/_comun_js.html" %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

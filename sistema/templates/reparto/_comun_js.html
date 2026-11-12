@@ -1,0 +1,182 @@
+{# JavaScript compartido por todas las pantallas: llamadas a la API, mapas, alertas y el buscador de direcciones. #}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const COMERCIO = [{{ comercio_lat|stringformat:".6f" }}, {{ comercio_lng|stringformat:".6f" }}];
+  // Django exige este token en cada POST para evitar envíos desde otros sitios
+  const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+  // Escapa texto antes de meterlo en HTML (evita que un dato con <etiquetas> se ejecute)
+  const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+  // GET si no hay datos; POST con JSON si los hay. Devuelve la respuesta ya convertida en objeto
+  async function api(url, datos) {
+    const headers = {};
+    if (window.CADETE_TOKEN) headers['X-Cadete-Token'] = window.CADETE_TOKEN;   // link secreto del repartidor
+    const r = await fetch(url, datos === undefined ? {headers} : {
+      method: 'POST',
+      headers: {...headers, 'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify(datos),
+    });
+    return r.json();
+  }
+
+  // Proveedores de mapa base, en orden. Si uno falla (bloqueo, caída), pasa solo al siguiente.
+  const MOSAICOS = [
+    {url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', sub: '',
+     attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'},
+    {url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', sub: '',
+     attr: 'Tiles &copy; Esri'},
+  ];
+  function agregarMosaicos(m, i = 0) {
+    const cfg = MOSAICOS[i];
+    let errores = 0, cambiado = false;
+    const capaBase = L.tileLayer(cfg.url, {maxZoom: 19, subdomains: cfg.sub || 'abc', attribution: cfg.attr});
+    capaBase.on('tileerror', () => {
+      if (++errores >= 3 && !cambiado && i + 1 < MOSAICOS.length) {
+        cambiado = true; m.removeLayer(capaBase); agregarMosaicos(m, i + 1);
+      }
+    });
+    capaBase.addTo(m);
+  }
+
+
+  // ================= Dirección <-> pin del mapa, siempre sincronizados =================
+  // Regla: lo escrito y el pin tienen que decir lo mismo.
+  //  - Escribir la dirección mueve el pin.  - Tocar/arrastrar el mapa o usar GPS reescribe la dirección.
+  //  - Mientras no coinciden (o falta la altura) alCambiar(null) avisa que NO se puede confirmar.
+  const _norm = t => (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\b(avenida|av\.?|calle|pasaje|pje\.?)\s+/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  const _tieneAltura = t => /\b\d{1,5}\b/.test(t || '');
+  const _mismaCalle = (texto, calle) => !!calle && _norm(texto).includes(_norm(calle));
+  function _armarTexto(a) {
+    const calle = a.road || a.pedestrian || a.footway || a.residential || '';
+    const num = a.house_number || '';
+    const zona = a.suburb || a.neighbourhood || a.city_district || a.city || a.town || a.village || '';
+    return {calle, conAltura: !!num, texto: [calle + (num ? ' ' + num : ''), zona].filter(Boolean).join(', ')};
+  }
+  const _NOMI = 'https://nominatim.openstreetmap.org';
+  async function geoBuscar(q) {
+    // Solo dentro de la zona del comercio (bounded) para que "Corrientes 1234" no caiga en otra provincia
+    const vb = [COMERCIO[1] - .3, COMERCIO[0] + .3, COMERCIO[1] + .3, COMERCIO[0] - .3].join(',');
+    const r = await fetch(`${_NOMI}/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=ar&bounded=1&viewbox=${vb}&q=${encodeURIComponent(q)}`);
+    const res = await r.json();
+    return res.length ? {lat: +res[0].lat, lng: +res[0].lon, ..._armarTexto(res[0].address || {})} : null;
+  }
+  async function geoInversa(lat, lng) {
+    const r = await fetch(`${_NOMI}/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=${lat}&lon=${lng}`);
+    const d = await r.json();
+    return d && d.address ? _armarTexto(d.address) : null;
+  }
+
+  function vincularDireccion({mapa, input, estado, alCambiar}) {
+    let pin = null, calleDelPin = '', timer = null, turno = 0;
+    const msg = (html, cls) => estado.innerHTML = `<span class="${cls || 'text-secondary'}">${html}</span>`;
+    const ok = (lat, lng, html) => { msg('<i class="bi bi-geo-alt-fill"></i> ' + html, 'text-success'); alCambiar(lat, lng); };
+    const pendiente = (html, cls) => { msg(html, cls || 'text-warning-emphasis'); alCambiar(null); };
+
+    function ponerPin(lat, lng, centrar) {
+      if (pin) pin.setLatLng([lat, lng]);
+      else {
+        pin = L.marker([lat, lng], {draggable: true}).addTo(mapa);
+        pin.on('dragend', () => { const p = pin.getLatLng(); desdeMapa(p.lat, p.lng); });
+      }
+      if (centrar !== false) mapa.setView([lat, lng], Math.max(mapa.getZoom(), 16));
+    }
+
+    async function desdeMapa(lat, lng) {
+      const n = ++turno; clearTimeout(timer);
+      ponerPin(lat, lng, false);
+      pendiente('Buscando la dirección de ese punto…', 'text-secondary');
+      let d = null; try { d = await geoInversa(lat, lng); } catch (e) {}
+      if (n !== turno) return;
+      if (!d || !d.calle) { pendiente('No reconocemos una calle en ese punto. Marcá sobre la calle o escribí la dirección.', 'text-danger'); return; }
+      calleDelPin = d.calle;
+      // Mismo pin sobre la misma calle que ya escribiste con número: respetamos tu altura
+      if (_mismaCalle(input.value, d.calle) && _tieneAltura(input.value)) { ok(lat, lng, `Pin ajustado sobre ${esc(d.calle)}.`); return; }
+      input.value = d.texto;
+      if (d.conAltura) ok(lat, lng, `Dirección tomada del mapa: <b>${esc(d.texto)}</b>`);
+      else { pendiente(`Marcaste sobre <b>${esc(d.calle)}</b>. Escribí la altura (número de la puerta).`); input.focus(); }
+    }
+
+    async function desdeTexto() {
+      const q = input.value.trim(), n = ++turno;
+      if (!q) { pendiente('Escribí la dirección o tocá el mapa.', 'text-secondary'); return; }
+      if (!_tieneAltura(q)) { pendiente('Falta la altura (número). Ej: Av. Corrientes 1234', 'text-warning-emphasis'); return; }
+      pendiente('Buscando en el mapa…', 'text-secondary');
+      let d = null; try { d = await geoBuscar(q); } catch (e) {
+        pendiente('Sin conexión al buscador. Marcá el lugar en el mapa.', 'text-danger'); return; }
+      if (n !== turno) return;
+      if (d && d.calle) {
+        ponerPin(d.lat, d.lng); calleDelPin = d.calle;
+        if (d.conAltura) ok(d.lat, d.lng, `Ubicada en el mapa: <b>${esc(d.texto)}</b>`);
+        else ok(d.lat, d.lng, `Encontramos <b>${esc(d.calle)}</b> pero no esa altura exacta: si hace falta, arrastrá el pin hasta la puerta.`);
+      } else if (pin && _mismaCalle(q, calleDelPin)) {
+        const p = pin.getLatLng(); ok(p.lat, p.lng, `Usamos el punto marcado sobre ${esc(calleDelPin)}.`);
+      } else {
+        pendiente('No encontramos esa dirección en la zona. Revisala o tocá el lugar en el mapa.', 'text-danger');
+      }
+    }
+
+    input.addEventListener('input', () => {
+      ++turno; clearTimeout(timer); alCambiar(null);
+      msg('Escribiendo…', 'text-secondary');
+      timer = setTimeout(desdeTexto, 1000);   // el buscador gratuito pide como máximo 1 consulta por segundo
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); desdeTexto(); } });
+    mapa.on('click', e => desdeMapa(e.latlng.lat, e.latlng.lng));
+
+    return {
+      buscar: () => { clearTimeout(timer); desdeTexto(); },
+      desdeMapa,
+      // Dirección ya validada antes (p. ej. guardada en el navegador)
+      restaurar: (lat, lng) => { ponerPin(lat, lng); ok(lat, lng, `Ubicada en el mapa: <b>${esc(input.value)}</b>`); },
+    };
+  }
+
+  function nuevoMapa(id, zoom) {
+    const m = L.map(id).setView(COMERCIO, zoom || 14);
+    agregarMosaicos(m);
+    L.marker(COMERCIO, {icon: L.divIcon({className: '', html: '<div class="marcador-moto">🏪</div>', iconSize: [24, 24]})})
+      .addTo(m).bindPopup('<b>{{ comercio_nombre }}</b>');
+    return m;
+  }
+
+  // Marcador redondo con el número de parada en la ruta
+  function iconoNumero(n, color) {
+    return L.divIcon({className: '', iconSize: [28, 28], iconAnchor: [14, 14],
+      html: `<div class="marcador-num" style="border-color:${color}">${n ?? '•'}</div>`});
+  }
+  // Marcador del repartidor
+  function iconoMoto(color) {
+    return L.divIcon({className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+      html: `<div class="marcador-moto" style="filter:drop-shadow(0 0 3px ${color})">🛵</div>`});
+  }
+
+  // ---- Alertas: toast + sonido + notificación del navegador ----
+  // Sonido corto para las alertas (sin archivos de audio)
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; g.gain.value = .08;
+      o.start(); o.stop(ctx.currentTime + .18);
+    } catch (e) {}
+  }
+  // Aviso flotante; si la pestaña está en segundo plano, además notificación del navegador
+  function alerta(mensaje, tipo, sonar) {
+    const div = document.createElement('div');
+    div.className = `toast align-items-center text-bg-${tipo || 'info'} border-0 show mb-2`;
+    div.innerHTML = `<div class="d-flex"><div class="toast-body">${mensaje}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto"></button></div>`;
+    div.querySelector('button').onclick = () => div.remove();
+    document.getElementById('toasts').prepend(div);
+    setTimeout(() => div.remove(), 9000);
+    if (sonar) beep();
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      new Notification('{{ comercio_nombre }}', {body: mensaje});
+    }
+  }
+  if ('Notification' in window && Notification.permission === 'default') {
+    document.addEventListener('click', () => Notification.requestPermission(), {once: true});
+  }
+</script>

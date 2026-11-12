@@ -1,0 +1,19 @@
+# --- Pedido por la consigna: no subir el entorno ni el .sql ---
+venv/
+.venv/
+env/
+*.sql
+
+# Base local y temporales
+db.sqlite3
+__pycache__/
+*.pyc
+_to_delete/
+*.bak
+*.tgz
+
+# Editores / sistema
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

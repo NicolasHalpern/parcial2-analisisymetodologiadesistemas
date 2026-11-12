@@ -1,0 +1,99 @@
+{% extends "reparto/base.html" %}
+{# Carga de pedidos en el local (formulario + mapa) y lista de pedidos de hoy con editar/borrar. #}
+{% block titulo %}Pedidos{% endblock %}
+{% block encabezado %}Pedidos{% endblock %}
+{% block contenido %}
+{% if not hay_repartidores %}
+  <div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i>
+    No hay repartidores en turno: los pedidos se guardan pero quedan sin asignar. <a href="{% url 'repartidores' %}">Gestionar repartidores</a>.</div>
+{% endif %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card card-primary card-outline">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-bag-plus"></i> Nuevo pedido</h3></div>
+      <form method="post" id="form-pedido">
+        {% csrf_token %}
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-7"><label class="form-label">Cliente *</label><input name="cliente_nombre" class="form-control" required></div>
+            <div class="col-md-5"><label class="form-label">Teléfono</label><input name="cliente_telefono" class="form-control" placeholder="11 5555-5555"></div>
+            <div class="col-12">
+              <label class="form-label">Dirección *</label>
+              <div class="input-group">
+                <input name="direccion" id="direccion" class="form-control" placeholder="Av. Corrientes 1234, CABA" required>
+                <button class="btn btn-outline-secondary" type="button" id="btn-buscar"><i class="bi bi-search"></i> Ubicar</button>
+              </div>
+              <div class="form-text" id="estado-geo">Escribí calle y número: el pin se ubica solo. También podés hacer clic en el mapa.</div>
+            </div>
+            <div class="col-12"><label class="form-label">Detalle del pedido</label><textarea name="detalle" rows="2" class="form-control" placeholder="2 pizzas muzza, 1 gaseosa"></textarea></div>
+            <div class="col-md-8"><label class="form-label">Notas para el repartidor</label><input name="notas" class="form-control" placeholder="Timbre 3B, paga con $10.000"></div>
+            <div class="col-md-4"><label class="form-label">Preparación (min)</label><input name="tiempo_preparacion_min" type="number" min="0" value="15" class="form-control"></div>
+          </div>
+          <input type="hidden" name="lat" id="lat"><input type="hidden" name="lng" id="lng">
+        </div>
+        <div class="card-footer text-end">
+          <button class="btn btn-primary"><i class="bi bi-lightning-charge"></i> Guardar y asignar automáticamente</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card"><div class="card-body p-2"><div id="mapa" class="mapa" style="height:470px"></div></div></div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header"><h3 class="card-title mb-0">Pedidos de hoy y activos</h3></div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead><tr><th>#</th><th>Hora</th><th>Cliente</th><th>Dirección</th><th>Estado</th><th>Repartidor</th><th>Llega</th><th>Acciones</th></tr></thead>
+      <tbody>
+      {% for p in pedidos %}
+        <tr>
+          <td>{{ p.id }}</td><td>{{ p.creado|time:"H:i" }}</td>
+          <td>{{ p.cliente_nombre }}<br><small class="text-secondary">{{ p.cliente_telefono }}</small></td>
+          <td>{{ p.direccion }}</td>
+          <td><span class="badge estado-{{ p.estado }}">{{ p.get_estado_display }}</span></td>
+          <td>{% if p.repartidor %}<span class="dot" style="background:{{ p.repartidor.color }}"></span>{{ p.repartidor }}{% else %}<span class="text-danger">Sin asignar</span>{% endif %}</td>
+          <td>{% if p.estado == 'ENTREGADO' %}✔ {{ p.entregado|time:"H:i" }}{% else %}{{ p.hora_estimada|time:"H:i"|default:"—" }}{% endif %}</td>
+          <td class="text-nowrap">
+            <a href="{% url 'editar_pedido' p.id %}" class="btn btn-sm btn-outline-primary" title="Editar"><i class="bi bi-pencil"></i></a>
+            <form method="post" action="{% url 'borrar_pedido' p.id %}" class="d-inline" onsubmit="return confirm('¿Borrar definitivamente el pedido #{{ p.id }}? Si el cliente se arrepintió, conviene marcarlo Cancelado desde Editar.')">
+              {% csrf_token %}<button class="btn btn-sm btn-outline-danger" title="Borrar"><i class="bi bi-trash"></i></button>
+            </form>
+            <a href="{% url 'seguimiento' p.codigo %}" target="_blank" class="btn btn-sm btn-outline-dark"><i class="bi bi-box-arrow-up-right"></i></a>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="copiar('{{ request.scheme }}://{{ request.get_host }}{% url 'seguimiento' p.codigo %}')" title="Copiar link para el cliente"><i class="bi bi-clipboard"></i></button>
+            {% if p.cliente_telefono %}
+            <a class="btn btn-sm btn-outline-success" target="_blank" title="Enviar link por WhatsApp"
+               href="https://wa.me/?text={{ 'Seguí tu pedido acá: '|urlencode }}{{ request.scheme }}://{{ request.get_host }}{% url 'seguimiento' p.codigo %}"><i class="bi bi-whatsapp"></i></a>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="text-center text-secondary py-4">Todavía no hay pedidos.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const mapa = nuevoMapa('mapa', 14);
+  const dir = vincularDireccion({
+    mapa, input: document.getElementById('direccion'), estado: document.getElementById('estado-geo'),
+    alCambiar: (lat, lng) => {
+      document.getElementById('lat').value = lat === null || lat === undefined ? '' : lat.toFixed(6);
+      document.getElementById('lng').value = lat === null || lat === undefined ? '' : lng.toFixed(6);
+    },
+  });
+  document.getElementById('btn-buscar').onclick = () => dir.buscar();
+  document.getElementById('form-pedido').addEventListener('submit', e => {
+    if (!document.getElementById('lat').value) {
+      e.preventDefault(); alerta('La dirección escrita y el pin del mapa todavía no coinciden.', 'danger');
+    }
+  });
+  function copiar(t) { navigator.clipboard.writeText(t).then(() => alerta('Link copiado: ' + t, 'success')); }
+</script>
+{% endblock %}

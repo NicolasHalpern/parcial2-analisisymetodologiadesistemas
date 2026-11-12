@@ -1,0 +1,142 @@
+HISTORIAS DE USUARIO - SISTEMA DE REPARTOS "LA ESQUINA"
+=======================================================
+
+Roles:
+- Administrador: el dueño o encargado del comercio.
+- Repartidor: los cadetes propios del comercio.
+- Cliente: la persona que hace el pedido.
+
+
+SPRINT 1 - Pedidos y repartidores
+---------------------------------
+
+HU-01 - Cargar un pedido
+Como administrador quiero cargar un pedido con los datos del cliente y su dirección
+para tener todos los pedidos registrados.
+Criterios:
+- Nombre y dirección son obligatorios.
+- El pedido queda "En preparación".
+
+HU-02 - Gestionar repartidores
+Como administrador quiero agregar repartidores y marcar quién está en turno
+para que solo se asignen pedidos a quien está trabajando.
+Criterios:
+- Puedo agregar un repartidor y prenderle o apagarle el turno.
+
+HU-03 - Ubicar la dirección en el mapa
+Como cliente o administrador quiero que la dirección escrita coincida con el pin del mapa
+para que el pedido llegue al lugar correcto.
+Criterios:
+- Si escribo la dirección, el pin se mueve solo.
+- Si muevo el pin, la dirección se actualiza.
+
+
+SPRINT 2 - Asignación y panel
+-----------------------------
+
+HU-04 - Asignación automática
+Como administrador quiero que cada pedido se asigne solo al repartidor más conveniente
+para dejar de repartir a ojo.
+Criterios:
+- Se tiene en cuenta la cercanía y cuántos pedidos tiene cada repartidor.
+- Puedo cambiar el repartidor a mano.
+
+HU-05 - Ruta y hora estimada
+Como administrador quiero saber el orden de entrega y la hora de llegada de cada pedido
+para poder informarle al cliente.
+Criterios:
+- Los pedidos se ordenan por el camino más corto.
+- Cada pedido muestra su hora estimada.
+
+HU-06 - Panel en vivo
+Como administrador quiero ver en un panel el estado de cada envío y dónde está cada repartidor
+para controlar el reparto sin llamar a nadie.
+Criterios:
+- Muestra los estados: en preparación, en camino y entregado.
+- Muestra un mapa con los repartidores y se actualiza solo.
+
+HU-07 - Alertas
+Como administrador quiero recibir avisos cuando pasa algo importante
+para reaccionar a tiempo.
+Criterios:
+- Aviso cuando entra, sale o se entrega un pedido.
+- Aviso cuando un pedido está demorado.
+
+
+SPRINT 3 - Repartidor y seguimiento
+-----------------------------------
+
+HU-08 - Ruta del repartidor
+Como repartidor quiero ver mis pedidos en el orden en que tengo que entregarlos
+para no perder tiempo.
+Criterios:
+- Solo veo mis pedidos.
+- Puedo marcar "Salir a reparto" y "Entregado".
+
+HU-09 - Compartir ubicación
+Como repartidor quiero compartir mi ubicación
+para que el comercio y el cliente sepan dónde estoy.
+Criterios:
+- Mi posición se ve en el mapa del panel.
+
+HU-10 - Seguimiento del pedido
+Como cliente quiero ver el estado de mi pedido y cuánto falta
+para no tener que llamar al comercio.
+Criterios:
+- Entro con un link, sin necesidad de cuenta.
+- Veo el estado, la hora estimada y al repartidor en el mapa.
+
+
+SPRINT 4 - Tienda online
+------------------------
+
+HU-11 - Ver el menú y armar el carrito
+Como cliente quiero ver el menú y agregar productos a un carrito
+para hacer mi pedido por internet.
+Criterios:
+- Veo los productos con su precio.
+- Puedo sumar y quitar productos.
+
+HU-12 - Confirmar el pedido
+Como cliente quiero ver el costo de envío y la hora de llegada antes de confirmar
+para decidir si hago el pedido.
+Criterios:
+- Puedo elegir cómo pago.
+- No puedo pedir si mi dirección está fuera de la zona de entrega.
+
+HU-13 - Administrar el menú
+Como administrador quiero cambiar precios y marcar productos sin stock
+para que la tienda muestre lo que realmente puedo vender.
+Criterios:
+- Puedo agregar productos y cambiarles el precio.
+
+
+SPRINT 5 - Cuentas y administración
+-----------------------------------
+
+HU-14 - Crear cuenta e iniciar sesión
+Como cliente quiero crearme una cuenta o iniciar sesión
+para no cargar mis datos cada vez que pido.
+Criterios:
+- Me registro con nombre, email, teléfono y contraseña.
+- Para confirmar un pedido tengo que haber iniciado sesión.
+
+HU-15 - Ingreso del administrador
+Como administrador quiero entrar con mi usuario y contraseña
+para que nadie más pueda ver ni cambiar los pedidos.
+Criterios:
+- Usuario "admin" y contraseña "123".
+- Sin iniciar sesión no se puede entrar al panel.
+
+HU-16 - Editar y borrar pedidos
+Como administrador quiero editar o borrar un pedido
+para corregir errores o cambios que pide el cliente.
+Criterios:
+- Puedo cambiar los datos, los productos, el estado y el repartidor.
+- Antes de borrar se pide confirmación.
+
+HU-17 - Ver mis pedidos
+Como cliente quiero ver la lista de mis pedidos
+para volver a seguir uno o ver lo que pedí.
+Criterios:
+- Cada pedido muestra su estado y su total.

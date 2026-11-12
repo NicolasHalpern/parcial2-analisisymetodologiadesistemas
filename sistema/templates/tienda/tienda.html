@@ -1,0 +1,367 @@
+{# Tienda online: menú, carrito (guardado en el navegador), checkout con mapa y cotización, y mis pedidos. #}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#c8102e">
+  <title>{{ comercio_nombre }} · Pedí online</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  {% include "reparto/_estilos.html" %}
+  <style>
+    :root { --rojo:#c8102e; --rojo-osc:#9e0c24; --crema:#fbf6ef; --tinta:#2b2118; --suave:#7a6a5c; --borde:#eadfd2; }
+    body { background: var(--crema); color: var(--tinta); font-family: Inter, system-ui, sans-serif; padding-bottom: 90px; }
+    h1, h2, .display-font { font-family: Fraunces, Georgia, serif; }
+    .hero { background: var(--rojo); color: #fff; padding: 2.2rem 0 4.2rem; position: relative; overflow: hidden; }
+    .hero::after { content: '🍕 🍔 🥟 🍟 🥤 🍰'; position: absolute; right: -1rem; bottom: -.6rem; font-size: 4rem; opacity: .15; letter-spacing: .6rem; white-space: nowrap; }
+    .hero h1 { font-weight: 800; font-size: clamp(2rem, 5vw, 3.2rem); margin: 0; }
+    .chip { display: inline-flex; align-items: center; gap: .35rem; background: rgba(255,255,255,.16); border-radius: 99px; padding: .3rem .8rem; font-size: .9rem; }
+    .btn-rojo { background: var(--rojo); border-color: var(--rojo); color: #fff; }
+    .btn-rojo:hover, .btn-rojo:focus { background: var(--rojo-osc); border-color: var(--rojo-osc); color: #fff; }
+    .btn-rojo:disabled { background: #d9a3ab; border-color: #d9a3ab; }
+    .contenedor { margin-top: -2.6rem; position: relative; }
+    .cats { position: sticky; top: 0; z-index: 10; background: var(--crema); padding: .6rem 0; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
+    .cats a { display: inline-block; padding: .4rem .95rem; margin-right: .35rem; border-radius: 99px; border: 1px solid var(--borde); background: #fff; color: var(--tinta); text-decoration: none; font-weight: 500; font-size: .92rem; }
+    .cats a.activa { background: var(--tinta); color: #fff; border-color: var(--tinta); }
+    .seccion { scroll-margin-top: 64px; }
+    .seccion h2 { font-size: 1.45rem; font-weight: 600; margin: 1.6rem 0 .8rem; }
+    .prod { background: #fff; border: 1px solid var(--borde); border-radius: 1rem; padding: 1rem; display: flex; gap: .9rem; height: 100%; transition: box-shadow .15s; }
+    .prod:hover { box-shadow: 0 6px 18px rgba(43,33,24,.08); }
+    .prod .emoji { font-size: 2.6rem; width: 64px; height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--crema); border-radius: .8rem; }
+    .prod .nombre { font-weight: 600; }
+    .prod .desc { color: var(--suave); font-size: .88rem; line-height: 1.3; }
+    .prod .precio { font-weight: 600; }
+    .prod.agotado { opacity: .5; }
+    .stepper { display: inline-flex; align-items: center; border: 1px solid var(--borde); border-radius: 99px; overflow: hidden; }
+    .stepper button { border: 0; background: #fff; width: 32px; height: 32px; font-size: 1.1rem; line-height: 1; }
+    .stepper span { min-width: 26px; text-align: center; font-weight: 600; }
+    .carrito-card { background: #fff; border: 1px solid var(--borde); border-radius: 1rem; position: sticky; top: 70px; }
+    .renglon { display: flex; align-items: center; gap: .5rem; padding: .55rem 0; border-bottom: 1px dashed var(--borde); }
+    .barra-movil { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030; padding: .75rem 1rem; background: #fff; border-top: 1px solid var(--borde); box-shadow: 0 -4px 16px rgba(0,0,0,.06); }
+    .aviso-pedido { background: #fff; border: 2px solid var(--tinta); border-radius: 1rem; }
+    .cotizacion { background: var(--crema); border-radius: .8rem; padding: .8rem 1rem; }
+    .mapa { height: 260px; }
+    .pago input { display: none; }
+    .pago label { border: 1px solid var(--borde); border-radius: .7rem; padding: .55rem .8rem; cursor: pointer; display: block; text-align: center; font-size: .9rem; background: #fff; }
+    .pago input:checked + label { border-color: var(--rojo); box-shadow: inset 0 0 0 1px var(--rojo); color: var(--rojo); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <div class="d-flex align-items-start">
+        <div class="me-auto">
+          <h1>{{ comercio_nombre }}</h1>
+          <p class="mb-2 opacity-75">Pizzas, burgers y empanadas · delivery con repartidores propios</p>
+          <span class="chip"><i class="bi bi-scooter"></i> <span id="chip-eta">Calculando demora…</span></span>
+          <span class="chip ms-1"><i class="bi bi-geo"></i> Hasta {{ radio_km|floatformat:"0" }} km</span>
+        </div>
+        <div class="d-flex gap-2 align-items-center flex-wrap justify-content-end">
+          {% if user.is_authenticated %}
+            {% if user.is_staff %}<a href="{% url 'panel' %}" class="btn btn-warning btn-sm rounded-pill fw-semibold"><i class="bi bi-speedometer2"></i> Panel</a>{% endif %}
+            <div class="dropdown">
+              <button class="btn btn-light btn-sm rounded-pill fw-semibold dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi bi-person-circle"></i> <span class="d-none d-sm-inline">{{ user.first_name|default:user.username }}</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><span class="dropdown-item-text small text-secondary">{{ user.email|default:user.username }}</span></li>
+                <li><a class="dropdown-item" href="#" data-bs-toggle="offcanvas" data-bs-target="#mis-pedidos"><i class="bi bi-receipt"></i> Mis pedidos</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><form method="post" action="{% url 'salir' %}" class="m-0">{% csrf_token %}<button class="dropdown-item text-danger"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</button></form></li>
+              </ul>
+            </div>
+          {% else %}
+            <a href="{% url 'ingresar' %}" class="btn btn-outline-light btn-sm rounded-pill fw-semibold">Ingresar</a>
+            <a href="{% url 'registro' %}" class="btn btn-light btn-sm rounded-pill fw-semibold">Crear cuenta</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="container contenedor">
+    <div id="aviso-activo"></div>
+    <div class="row g-4">
+      <div class="col-lg-8">
+        <nav class="cats" id="cats">
+          {% for c in categorias %}<a href="#cat-{{ forloop.counter }}" class="{% if forloop.first %}activa{% endif %}">{{ c }}</a>{% endfor %}
+        </nav>
+        {% for c in categorias %}
+          <section class="seccion" id="cat-{{ forloop.counter }}">
+            <h2>{{ c }}</h2>
+            <div class="row g-3">
+              {% for p in productos %}{% if p.categoria == c %}
+                <div class="col-md-6">
+                  <div class="prod {% if not p.disponible %}agotado{% endif %}">
+                    <div class="emoji">{{ p.emoji }}</div>
+                    <div class="flex-grow-1 d-flex flex-column">
+                      <div class="nombre">{{ p.nombre }}</div>
+                      <div class="desc mb-2">{{ p.descripcion }}</div>
+                      <div class="mt-auto d-flex align-items-center">
+                        <span class="precio me-auto" data-precio="{{ p.precio|stringformat:'.2f' }}"></span>
+                        {% if p.disponible %}
+                          <span class="control" data-id="{{ p.id }}"></span>
+                        {% else %}
+                          <span class="badge text-bg-secondary">Sin stock</span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endif %}{% endfor %}
+            </div>
+          </section>
+        {% empty %}
+          <div class="text-center py-5 text-secondary">El menú todavía no está cargado.</div>
+        {% endfor %}
+      </div>
+
+      <div class="col-lg-4 d-none d-lg-block">
+        <div class="carrito-card p-3 mt-2">
+          <h2 class="h5 display-font mb-2">Tu pedido</h2>
+          <div class="cuerpo-carrito"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra inferior en el celular -->
+  <div class="barra-movil d-lg-none d-none" id="barra-movil">
+    <button class="btn btn-rojo w-100 btn-lg rounded-pill d-flex align-items-center" data-bs-toggle="offcanvas" data-bs-target="#carrito-movil">
+      <span class="badge bg-white text-dark rounded-pill me-2" id="barra-cant">0</span>
+      <span class="me-auto">Ver pedido</span><span id="barra-total"></span>
+    </button>
+  </div>
+
+  <div class="offcanvas offcanvas-bottom h-auto rounded-top-4" tabindex="-1" id="carrito-movil" style="max-height:85vh">
+    <div class="offcanvas-header"><h5 class="offcanvas-title display-font">Tu pedido</h5><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
+    <div class="offcanvas-body pt-0 cuerpo-carrito"></div>
+  </div>
+
+  <div class="offcanvas offcanvas-end" tabindex="-1" id="mis-pedidos">
+    <div class="offcanvas-header"><h5 class="offcanvas-title display-font">Mis pedidos</h5><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div>
+    <div class="offcanvas-body" id="lista-mis-pedidos"></div>
+  </div>
+
+  <!-- Checkout -->
+  <div class="modal fade" id="checkout" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-fullscreen-md-down modal-dialog-scrollable">
+      <div class="modal-content" style="background:var(--crema)">
+        <div class="modal-header border-0"><h5 class="modal-title display-font">¿A dónde te lo llevamos?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="mb-2"><label class="form-label small fw-semibold">Nombre</label><input id="f-nombre" class="form-control" autocomplete="name"></div>
+              <div class="mb-2"><label class="form-label small fw-semibold">Teléfono</label><input id="f-tel" class="form-control" type="tel" autocomplete="tel" placeholder="11 5555-5555"></div>
+              <div class="mb-2">
+                <label class="form-label small fw-semibold">Dirección</label>
+                <div class="input-group">
+                  <input id="f-dir" class="form-control" autocomplete="street-address" placeholder="Av. Corrientes 1234">
+                  <button class="btn btn-outline-dark" type="button" id="btn-ubicar"><i class="bi bi-search"></i></button>
+                  <button class="btn btn-outline-dark" type="button" id="btn-gps" title="Usar mi ubicación"><i class="bi bi-crosshair"></i></button>
+                </div>
+                <div class="form-text" id="geo-txt">Escribí calle y número: el pin se ubica solo. También podés tocar el mapa.</div>
+              </div>
+              <div class="mb-2"><label class="form-label small fw-semibold">Piso, depto, timbre, aclaraciones</label><input id="f-notas" class="form-control" placeholder="3° B, timbre que no anda"></div>
+              <label class="form-label small fw-semibold mt-1">¿Cómo pagás?</label>
+              <div class="row g-2 pago mb-2">
+                {% for valor, texto in pagos %}
+                  <div class="col-4"><input type="radio" name="pago" id="pago-{{ valor }}" value="{{ valor }}" {% if forloop.first %}checked{% endif %}><label for="pago-{{ valor }}">{{ texto }}</label></div>
+                {% endfor %}
+              </div>
+              <div id="caja-paga-con"><label class="form-label small fw-semibold">¿Con cuánto pagás? <span class="text-secondary fw-normal">(para llevar cambio)</span></label><input id="f-paga" class="form-control" type="number" min="0" step="100" placeholder="Opcional"></div>
+            </div>
+            <div class="col-md-6">
+              <div id="mapa" class="mapa mb-2"></div>
+              <div class="cotizacion" id="cotizacion"><span class="text-secondary small">Marcá tu dirección para ver el envío y la hora de llegada.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 flex-column align-items-stretch">
+          <div class="d-flex justify-content-between small"><span>Subtotal</span><span id="t-sub"></span></div>
+          <div class="d-flex justify-content-between small"><span>Envío</span><span id="t-envio">—</span></div>
+          <div class="d-flex justify-content-between fw-bold fs-5 mb-2"><span>Total</span><span id="t-total"></span></div>
+          <button class="btn btn-rojo btn-lg rounded-pill" id="btn-confirmar" disabled>Confirmar pedido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
+  {% csrf_token %}
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+  {% include "reparto/_comun_js.html" %}
+  <script>
+    const PRODUCTOS = Object.fromEntries({{ productos_json|safe }}.map(p => [p.id, p]));
+    const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+    const plata = n => new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS', maximumFractionDigits: 0}).format(n);
+    const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+    const leer = (k, def) => { try { return JSON.parse(localStorage.getItem(k)) ?? def; } catch (e) { return def; } };
+
+    $$('[data-precio]').forEach(el => el.textContent = plata(parseFloat(el.dataset.precio)));
+
+    // ---------------- Carrito ----------------
+    let carrito = leer('carrito', {});           // {id: cantidad}
+    Object.keys(carrito).forEach(id => { if (!PRODUCTOS[id] || !PRODUCTOS[id].disponible) delete carrito[id]; });
+    const subtotal = () => Object.entries(carrito).reduce((s, [id, c]) => s + PRODUCTOS[id].precio * c, 0);
+    const cantidad = () => Object.values(carrito).reduce((s, c) => s + c, 0);
+
+    // Suma o resta unidades de un producto y vuelve a dibujar el carrito
+    function cambiar(id, delta) {
+      carrito[id] = Math.max(0, Math.min(20, (carrito[id] || 0) + delta));
+      if (!carrito[id]) delete carrito[id];
+      guardar('carrito', carrito); pintar();
+    }
+    const stepper = id => carrito[id]
+      ? `<span class="stepper"><button onclick="cambiar(${id},-1)">−</button><span>${carrito[id]}</span><button onclick="cambiar(${id},1)">+</button></span>`
+      : `<button class="btn btn-sm btn-rojo rounded-pill px-3" onclick="cambiar(${id},1)"><i class="bi bi-plus-lg"></i> Agregar</button>`;
+
+    // Dibuja el carrito (columna derecha en PC y panel inferior en celular)
+    function pintar() {
+      $$('.control').forEach(el => el.innerHTML = stepper(el.dataset.id));
+      const items = Object.entries(carrito);
+      const html = items.length ? `
+        ${items.map(([id, c]) => `<div class="renglon"><span class="fs-4">${PRODUCTOS[id].emoji}</span>
+          <div class="flex-grow-1 small"><div class="fw-semibold">${esc(PRODUCTOS[id].nombre)}</div>${plata(PRODUCTOS[id].precio * c)}</div>${stepper(id)}</div>`).join('')}
+        <div class="d-flex justify-content-between fw-semibold my-3"><span>Subtotal</span><span>${plata(subtotal())}</span></div>
+        <button class="btn btn-rojo w-100 btn-lg rounded-pill" onclick="abrirCheckout()">${PERFIL ? 'Continuar' : 'Ingresá para pedir'}</button>
+        <div class="text-center small text-secondary mt-2">${PERFIL ? 'El envío se calcula con tu dirección' : '¿No tenés cuenta? <a href="/registro?next=%2F%23checkout" class="text-danger fw-semibold">Creala en un minuto</a>'}</div>`
+        : `<div class="text-center text-secondary py-4"><div class="fs-1">🛒</div>Todavía no agregaste nada.</div>`;
+      $$('.cuerpo-carrito').forEach(el => el.innerHTML = html);
+      $('#barra-movil').classList.toggle('d-none', !items.length);
+      $('#barra-cant').textContent = cantidad();
+      $('#barra-total').textContent = plata(subtotal());
+      totales();
+    }
+
+    // ---------------- Demora estimada general ----------------
+    api('/api/tienda/cotizar').then(d => $('#chip-eta').textContent =
+      d.hay_repartidores ? `Llega en ~${d.minutos} min` : 'Demora mayor a la habitual');
+
+    // categoría activa al scrollear
+    const obs = new IntersectionObserver(es => es.forEach(e => {
+      if (e.isIntersecting) $$('#cats a').forEach(a => a.classList.toggle('activa', a.getAttribute('href') === '#' + e.target.id));
+    }), {rootMargin: '-40% 0px -55% 0px'});
+    $$('.seccion').forEach(s => obs.observe(s));
+
+    // ---------------- Checkout ----------------
+    const modal = new bootstrap.Modal('#checkout');
+    let mapa = null, pin = null, ubic = null, cot = null;
+    // Con sesión iniciada, los datos salen de la cuenta; si no, de lo guardado en el navegador
+    const PERFIL = {{ perfil_json|safe }};
+    const datos = PERFIL ? {...leer('cliente', {}), ...Object.fromEntries(Object.entries(PERFIL).filter(([, v]) => v))} : leer('cliente', {});
+    $('#f-nombre').value = datos.nombre || ''; $('#f-tel').value = datos.tel || '';
+    $('#f-dir').value = datos.dir || ''; $('#f-notas').value = datos.notas || '';
+    if (datos.lat) ubic = [datos.lat, datos.lng];
+
+    function irAIngresar() {
+      // El carrito queda guardado en el navegador: al volver se abre directo el checkout
+      location.href = '/ingresar?next=' + encodeURIComponent('/#checkout');
+    }
+    function abrirCheckout() {
+      bootstrap.Offcanvas.getInstance('#carrito-movil')?.hide();
+      if (!PERFIL) return irAIngresar();
+      modal.show();
+    }
+    let dir = null;
+    document.getElementById('checkout').addEventListener('shown.bs.modal', () => {
+      if (!mapa) {
+        mapa = nuevoMapa('mapa', 14);
+        L.circle(COMERCIO, {radius: {{ radio_km|stringformat:".1f" }} * 1000 / 1.35, color: '#c8102e', weight: 1, fillOpacity: .04}).addTo(mapa);
+        dir = vincularDireccion({mapa, input: $('#f-dir'), estado: $('#geo-txt'), alCambiar: cotizar});
+        // Dirección del pedido anterior: solo se reutiliza si el texto no cambió
+        if (ubic && datos.dir && $('#f-dir').value === datos.dir) dir.restaurar(ubic[0], ubic[1]);
+        else if ($('#f-dir').value.trim()) dir.buscar();
+      }
+      mapa.invalidateSize();
+    });
+
+    // Se llama cada vez que dirección y pin coinciden (o dejan de coincidir)
+    async function cotizar(lat, lng) {
+      if (lat === null || lat === undefined) {      // dirección y pin todavía no coinciden
+        ubic = null; cot = null;
+        $('#cotizacion').innerHTML = '<span class="text-secondary small">Confirmá tu dirección para ver el envío y la hora de llegada.</span>';
+        totales(); return;
+      }
+      ubic = [lat, lng];
+      $('#cotizacion').innerHTML = '<span class="small text-secondary">Calculando…</span>';
+      const res = await api(`/api/tienda/cotizar?lat=${lat}&lng=${lng}`);
+      if (!ubic || ubic[0] !== lat || ubic[1] !== lng) return;   // llegó tarde: ya cambió la dirección
+      cot = res;
+      $('#cotizacion').innerHTML = cot.ok
+        ? `<div class="d-flex align-items-center"><i class="bi bi-clock fs-3 me-2"></i><div>
+             <div class="fw-semibold">Llega aprox. a las ${cot.hora_estimada}</div>
+             <div class="small text-secondary">~${cot.minutos} min · ${cot.km} km · envío ${plata(cot.costo_envio)}</div></div></div>
+           ${cot.hay_repartidores ? '' : '<div class="small text-danger mt-1">Todos los repartidores están ocupados: puede demorar un poco más.</div>'}`
+        : `<div class="text-danger small"><i class="bi bi-x-circle"></i> ${cot.error}</div>`;
+      totales();
+    }
+
+    // Subtotal + envío; el botón de confirmar solo se habilita si todo está completo
+    function totales() {
+      const envio = cot && cot.ok ? cot.costo_envio : 0;
+      $('#t-sub').textContent = plata(subtotal());
+      $('#t-envio').textContent = cot && cot.ok ? plata(envio) : '—';
+      $('#t-total').textContent = plata(subtotal() + envio);
+      $('#btn-confirmar').disabled = !(ubic && cot && cot.ok && cantidad());
+      $('#btn-confirmar').textContent = cot && cot.ok ? `Confirmar pedido · ${plata(subtotal() + envio)}` : 'Confirmar pedido';
+    }
+
+    $('#btn-ubicar').onclick = () => dir && dir.buscar();
+    $('#btn-gps').onclick = () => navigator.geolocation?.getCurrentPosition(
+      p => dir && dir.desdeMapa(p.coords.latitude, p.coords.longitude),
+      () => alerta('No pudimos leer tu ubicación. Escribí la dirección.', 'warning'));
+    $$('[name=pago]').forEach(r => r.onchange = () => $('#caja-paga-con').classList.toggle('d-none', $('[name=pago]:checked').value !== 'EFECTIVO'));
+
+    // Envía el pedido. Los precios los recalcula el servidor; acá solo van ids y cantidades
+    $('#btn-confirmar').onclick = async () => {
+      const cuerpo = {
+        cliente_nombre: $('#f-nombre').value, cliente_telefono: $('#f-tel').value,
+        direccion: $('#f-dir').value, notas: $('#f-notas').value, lat: ubic[0], lng: ubic[1],
+        forma_pago: $('[name=pago]:checked').value, paga_con: $('#f-paga').value,
+        items: Object.entries(carrito).map(([id, c]) => ({id: +id, cantidad: c})),
+      };
+      if (!cuerpo.cliente_nombre.trim() || !cuerpo.cliente_telefono.trim() || !cuerpo.direccion.trim())
+        return alerta('Completá nombre, teléfono y dirección.', 'danger');
+      const btn = $('#btn-confirmar'); btn.disabled = true; btn.textContent = 'Enviando…';
+      const r = await api('/api/tienda/pedido', cuerpo).catch(() => ({ok: false, error: 'Sin conexión, probá de nuevo.'}));
+      if (!r.ok && r.login) { alerta('Tu sesión se cerró. Ingresá de nuevo: el carrito queda guardado.', 'warning'); setTimeout(irAIngresar, 1500); return; }
+      if (!r.ok) { alerta(r.error, 'danger'); totales(); return; }
+      guardar('cliente', {nombre: cuerpo.cliente_nombre, tel: cuerpo.cliente_telefono, dir: cuerpo.direccion, notas: cuerpo.notas, lat: ubic[0], lng: ubic[1]});
+      guardar('mis_pedidos', [r.codigo, ...leer('mis_pedidos', []).filter(c => c !== r.codigo)].slice(0, 10));
+      guardar('carrito', {});
+      location.href = r.url;
+    };
+
+    // ---------------- Mis pedidos ----------------
+    // Lista de mis pedidos y aviso de pedido en curso (se refresca cada 15 s)
+    async function misPedidos() {
+      const cods = leer('mis_pedidos', []);
+      if (!PERFIL && !cods.length) { $('#lista-mis-pedidos').innerHTML = '<p class="text-secondary">Acá vas a ver tus pedidos.</p>'; return; }
+      const d = await api('/api/tienda/mis-pedidos?codigos=' + cods.join(','));
+      const orden = d.cuenta ? d.pedidos : cods.map(c => d.pedidos.find(p => p.codigo === c)).filter(Boolean);
+      if (!orden.length) { $('#lista-mis-pedidos').innerHTML = '<p class="text-secondary">Todavía no hiciste pedidos.</p>'; $('#aviso-activo').innerHTML = ''; return; }
+      $('#lista-mis-pedidos').innerHTML = orden.map(p => `
+        <a href="/seguimiento/${p.codigo}" class="d-flex align-items-center text-decoration-none text-dark border rounded-3 p-2 mb-2 bg-white">
+          <div class="me-auto"><div class="fw-semibold">Pedido #${p.id}</div><small class="text-secondary">${p.creado} · ${plata(p.total)}</small></div>
+          <span class="badge estado-${p.estado}">${p.estado_txt}</span></a>`).join('');
+      const activo = orden.find(p => p.estado === 'PREPARACION' || p.estado === 'EN_CAMINO');
+      $('#aviso-activo').innerHTML = activo ? `
+        <a href="/seguimiento/${activo.codigo}" class="aviso-pedido d-flex align-items-center p-3 mb-3 text-decoration-none text-dark">
+          <span class="fs-2 me-3">${activo.estado === 'EN_CAMINO' ? '🛵' : '👨‍🍳'}</span>
+          <div class="me-auto"><div class="fw-semibold">Tu pedido #${activo.id} está ${activo.estado_txt.toLowerCase()}</div>
+          <small class="text-secondary">Llega aprox. a las ${activo.hora_estimada || '--:--'}</small></div>
+          <span class="btn btn-dark btn-sm rounded-pill">Seguir <i class="bi bi-arrow-right"></i></span></a>` : '';
+    }
+    pintar(); misPedidos(); setInterval(misPedidos, 15000);
+    if (location.hash === '#checkout') {
+      history.replaceState(null, '', location.pathname);
+      if (PERFIL && cantidad()) abrirCheckout();
+    }
+  </script>
+</body>
+</html>

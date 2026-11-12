@@ -1,0 +1,31 @@
+{% extends "cuentas/base.html" %}
+{# Alta de cuenta para clientes de la tienda. #}
+{% block titulo %}Crear cuenta{% endblock %}
+{% block contenido %}
+<h2 class="display-font h3 mb-1">Creá tu cuenta</h2>
+<p class="text-secondary small mb-4">Tardás un minuto y la próxima vez tus datos ya quedan cargados.</p>
+{% if errores %}
+  <div class="alert alert-danger py-2 small"><ul class="mb-0 ps-3">{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul></div>
+{% endif %}
+<form method="post" novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="row g-2 mb-3">
+    <div class="col-6"><label class="form-label" for="nombre">Nombre</label><input class="form-control" id="nombre" name="nombre" value="{{ datos.nombre|default:'' }}" autocomplete="given-name" required></div>
+    <div class="col-6"><label class="form-label" for="apellido">Apellido</label><input class="form-control" id="apellido" name="apellido" value="{{ datos.apellido|default:'' }}" autocomplete="family-name"></div>
+  </div>
+  <div class="mb-3"><label class="form-label" for="email">Email</label><input class="form-control" id="email" name="email" type="email" value="{{ datos.email|default:'' }}" autocomplete="email" required></div>
+  <div class="mb-3"><label class="form-label" for="telefono">Teléfono</label><input class="form-control" id="telefono" name="telefono" type="tel" value="{{ datos.telefono|default:'' }}" autocomplete="tel" placeholder="11 5555-5555" required></div>
+  <div class="mb-3">
+    <label class="form-label" for="clave">Contraseña</label>
+    <div class="input-group">
+      <input class="form-control" id="clave" name="clave" type="password" autocomplete="new-password" required>
+      <button class="btn btn-outline-secondary" type="button" data-ver="clave" title="Mostrar"><i class="bi bi-eye"></i></button>
+    </div>
+    <div class="form-text">Mínimo 8 caracteres, que no sea solo números ni muy común.</div>
+  </div>
+  <div class="mb-4"><label class="form-label" for="clave2">Repetí la contraseña</label><input class="form-control" id="clave2" name="clave2" type="password" autocomplete="new-password" required></div>
+  <button class="btn btn-rojo w-100 btn-lg rounded-pill">Crear cuenta</button>
+</form>
+<p class="text-center mt-4 mb-0">¿Ya tenés cuenta? <a class="enlace" href="{% url 'ingresar' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Ingresá</a></p>
+{% endblock %}

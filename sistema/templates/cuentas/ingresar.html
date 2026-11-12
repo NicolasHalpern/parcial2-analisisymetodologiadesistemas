@@ -1,0 +1,28 @@
+{% extends "cuentas/base.html" %}
+{# Login único: el admin entra con su usuario y los clientes con su email. #}
+{% block titulo %}Ingresar{% endblock %}
+{% block contenido %}
+<h2 class="display-font h3 mb-1">Ingresá a tu cuenta</h2>
+<p class="text-secondary small mb-4">Para pedir y seguir tus pedidos.</p>
+{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}
+{% if error %}<div class="alert alert-danger py-2 small"><i class="bi bi-exclamation-circle"></i> {{ error }}</div>{% endif %}
+<form method="post" novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <div class="mb-3">
+    <label class="form-label" for="usuario">Email o usuario</label>
+    <input class="form-control" id="usuario" name="usuario" value="{{ usuario|default:'' }}" autocomplete="username" autofocus required>
+  </div>
+  <div class="mb-4">
+    <label class="form-label" for="clave">Contraseña</label>
+    <div class="input-group">
+      <input class="form-control" id="clave" name="clave" type="password" autocomplete="current-password" required>
+      <button class="btn btn-outline-secondary" type="button" data-ver="clave" title="Mostrar"><i class="bi bi-eye"></i></button>
+    </div>
+  </div>
+  <button class="btn btn-rojo w-100 btn-lg rounded-pill">Ingresar</button>
+</form>
+<p class="text-center mt-4 mb-0">¿No tenés cuenta? <a class="enlace" href="{% url 'registro' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Creala gratis</a></p>
+<hr class="my-4">
+<p class="text-center small text-secondary mb-0"><i class="bi bi-shop"></i> ¿Sos del comercio? Ingresá con tu usuario de administrador.</p>
+{% endblock %}

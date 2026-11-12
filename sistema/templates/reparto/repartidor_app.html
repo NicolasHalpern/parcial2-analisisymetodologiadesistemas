@@ -1,0 +1,136 @@
+{% extends "reparto/base_movil.html" %}
+{# App del cadete: su ruta en orden, salir a reparto, marcar entregas y enviar GPS (o simularlo). #}
+{% block titulo %}{{ repartidor.nombre }}{% endblock %}
+{% block subtitulo %}<span class="dot" style="background:{{ repartidor.color }}"></span>{{ repartidor.nombre_completo }}{% endblock %}
+{% block contenido %}
+<div class="card mb-3">
+  <div class="card-body d-flex align-items-center gap-2 flex-wrap">
+    <div class="me-auto"><div class="fw-semibold" id="situacion">…</div><small class="text-secondary" id="gps-estado">Ubicación sin compartir</small></div>
+    <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="sw-turno"><label class="form-check-label" for="sw-turno">En turno</label></div>
+  </div>
+  <div class="card-footer d-flex gap-3 flex-wrap small">
+    <div class="form-check m-0"><input class="form-check-input" type="checkbox" id="sw-gps"><label class="form-check-label" for="sw-gps"><i class="bi bi-broadcast"></i> Compartir GPS</label></div>
+    <div class="form-check m-0"><input class="form-check-input" type="checkbox" id="sw-sim"><label class="form-check-label" for="sw-sim"><i class="bi bi-play-circle"></i> Simular recorrido (demo)</label></div>
+  </div>
+</div>
+
+<button class="btn btn-primary btn-lg w-100 mb-3 d-none" id="btn-salir"><i class="bi bi-scooter"></i> Salir a reparto</button>
+
+<div class="card mb-3"><div class="card-body p-1"><div id="mapa" class="mapa"></div></div></div>
+
+<h6 class="text-secondary text-uppercase small">Mi ruta (orden óptimo)</h6>
+<div id="paradas"><div class="text-center text-secondary py-4">Cargando…</div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ID = {{ repartidor.id }}, COLOR = '{{ repartidor.color }}';
+  window.CADETE_TOKEN = '{{ repartidor.token }}';
+  const mapa = nuevoMapa('mapa', 14);
+  const capa = L.layerGroup().addTo(mapa);
+  let yo = null, pedidos = [], conocidos = null, encuadrado = false, timerSim = null, watchId = null, ultimoEnvio = 0;
+
+  // Manda la posición al servidor (como mucho cada 4 s, salvo la simulación)
+  async function enviarUbicacion(lat, lng, forzar) {
+    const ahora = Date.now();
+    yo = [lat, lng];
+    if (!forzar && ahora - ultimoEnvio < 4000) return;
+    ultimoEnvio = ahora;
+    await api(`/api/repartidores/${ID}/ubicacion`, {lat, lng});
+    document.getElementById('gps-estado').textContent = 'Ubicación enviada ' + new Date().toLocaleTimeString().slice(0, 5);
+  }
+
+  // ----- GPS real del celular (requiere https o localhost) -----
+  document.getElementById('sw-gps').onchange = e => {
+    if (e.target.checked) {
+      if (!navigator.geolocation) { alerta('Este navegador no tiene GPS.', 'danger'); e.target.checked = false; return; }
+      watchId = navigator.geolocation.watchPosition(
+        pos => enviarUbicacion(pos.coords.latitude, pos.coords.longitude),
+        err => { alerta('No se pudo leer el GPS: ' + err.message + ' (usá "Simular recorrido" para la demo).', 'warning'); e.target.checked = false; },
+        {enableHighAccuracy: true, maximumAge: 5000});
+    } else if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  };
+
+  // ----- Simulación: avanza ~80 m cada 2 s hacia la próxima parada -----
+  document.getElementById('sw-sim').onchange = e => {
+    clearInterval(timerSim);
+    if (!e.target.checked) return;
+    timerSim = setInterval(() => {
+      const enCamino = pedidos.filter(p => p.estado === 'EN_CAMINO');
+      const objetivo = enCamino.length ? [enCamino[0].lat, enCamino[0].lng] : COMERCIO;
+      const actual = yo || COMERCIO;
+      const dist = mapa.distance(actual, objetivo);
+      const paso = Math.min(1, 80 / Math.max(dist, 1));
+      enviarUbicacion(actual[0] + (objetivo[0] - actual[0]) * paso, actual[1] + (objetivo[1] - actual[1]) * paso, true);
+      if (dist < 40 && enCamino.length) alerta(`Llegaste a la parada de ${enCamino[0].cliente}. Marcá "Entregado" al terminar.`, 'info');
+      dibujar();
+    }, 2000);
+  };
+
+  document.getElementById('sw-turno').onchange = async e => {
+    await api(`/api/repartidores/${ID}/turno`, {disponible: e.target.checked}); refrescar();
+  };
+  document.getElementById('btn-salir').onclick = async () => { await api(`/api/repartidores/${ID}/salir`, {}); alerta('¡Buen viaje! Los clientes ya fueron avisados.', 'success'); refrescar(); };
+
+  async function entregar(id) {
+    if (!confirm('¿Pedido #' + id + ' entregado?')) return;
+    await api(`/api/pedidos/${id}/estado`, {estado: 'ENTREGADO'}); refrescar();
+  }
+
+  // Dibuja al cadete, la línea de la ruta y los números de parada
+  function dibujar() {
+    capa.clearLayers();
+    const enCalle = pedidos.some(p => p.estado === 'EN_CAMINO');
+    if (yo) L.marker(yo, {icon: iconoMoto(COLOR), zIndexOffset: 1000}).addTo(capa).bindTooltip('Vos');
+    const inicio = enCalle && yo ? yo : COMERCIO;
+    if (pedidos.length) L.polyline([inicio, ...pedidos.map(p => [p.lat, p.lng])], {color: COLOR, weight: 5, opacity: .75}).addTo(capa);
+    pedidos.forEach(p => L.marker([p.lat, p.lng], {icon: iconoNumero(p.orden_ruta, COLOR)}).addTo(capa).bindPopup(`<b>${p.cliente}</b><br>${p.direccion}`));
+    if (!encuadrado && pedidos.length) { mapa.fitBounds([inicio, ...pedidos.map(p => [p.lat, p.lng])], {padding: [30, 30]}); encuadrado = true; }
+  }
+
+  // Pide la ruta actualizada; si apareció un pedido nuevo, avisa con sonido
+  async function refrescar() {
+    let d; try { d = await api(`/api/repartidores/${ID}/ruta`); } catch (e) { return; }
+    const r = d.repartidor;
+    pedidos = d.pedidos;
+    if (!yo && r.lat !== null) yo = [r.lat, r.lng];
+    document.getElementById('sw-turno').checked = r.disponible;
+    document.getElementById('situacion').textContent = r.situacion;
+
+    const ids = pedidos.map(p => p.id);
+    if (conocidos) ids.filter(i => !conocidos.includes(i)).forEach(i => alerta(`Nuevo pedido asignado: #${i}`, 'primary', true));
+    conocidos = ids;
+
+    const prep = pedidos.filter(p => p.estado === 'PREPARACION').length;
+    const enCalle = pedidos.some(p => p.estado === 'EN_CAMINO');
+    const btn = document.getElementById('btn-salir');
+    btn.classList.toggle('d-none', !prep || enCalle);
+    btn.innerHTML = `<i class="bi bi-scooter"></i> Salir a reparto (${prep} pedido${prep > 1 ? 's' : ''})`;
+
+    document.getElementById('paradas').innerHTML = pedidos.map(p => `
+      <div class="card mb-2 ${p.demorado ? 'border-danger' : ''}">
+        <div class="card-body">
+          <div class="d-flex align-items-start">
+            <div class="marcador-num me-2 flex-shrink-0" style="border-color:${COLOR}">${p.orden_ruta}</div>
+            <div class="me-auto">
+              <div class="fw-semibold">${p.cliente}</div>
+              <div>${p.direccion}</div>
+              ${p.notas ? `<div class="small text-danger"><i class="bi bi-info-circle"></i> ${p.notas}</div>` : ''}
+              ${p.detalle ? `<div class="small text-secondary">${p.detalle}</div>` : ''}
+              ${p.total ? `<div class="small fw-semibold mt-1"><i class="bi bi-cash-coin"></i> Cobrar ${new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(p.total)} · ${p.forma_pago}</div>` : ''}
+            </div>
+            <div class="text-end"><span class="badge estado-${p.estado}">${p.estado_txt}</span><div class="small mt-1">llega ${p.hora_estimada || '—'}</div></div>
+          </div>
+          <div class="d-flex gap-2 mt-2">
+            ${p.telefono ? `<a class="btn btn-outline-secondary btn-sm" href="tel:${p.telefono}"><i class="bi bi-telephone"></i> Llamar</a>` : ''}
+            <a class="btn btn-outline-secondary btn-sm" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}"><i class="bi bi-sign-turn-right"></i> Navegar</a>
+            ${p.estado === 'EN_CAMINO' ? `<button class="btn btn-success btn-sm ms-auto" onclick="entregar(${p.id})"><i class="bi bi-check-lg"></i> Entregado</button>` : ''}
+          </div>
+        </div>
+      </div>`).join('') || '<div class="text-center text-secondary py-4"><i class="bi bi-cup-hot fs-2 d-block"></i>Sin pedidos asignados por ahora.</div>';
+    dibujar();
+  }
+  refrescar();
+  setInterval(refrescar, 5000);
+</script>
+{% endblock %}

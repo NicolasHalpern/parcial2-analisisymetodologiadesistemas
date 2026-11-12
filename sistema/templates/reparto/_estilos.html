@@ -1,0 +1,14 @@
+{# Estilos compartidos: colores de cada estado, marcadores del mapa y avisos flotantes. #}
+  <style>
+    .mapa { height: 520px; border-radius: .5rem; z-index: 0; }
+    .estado-PREPARACION { background:#ffc107; color:#000; }
+    .estado-EN_CAMINO   { background:#0d6efd; color:#fff; }
+    .estado-ENTREGADO   { background:#198754; color:#fff; }
+    .estado-CANCELADO   { background:#6c757d; color:#fff; }
+    .dot { display:inline-block; width:.8rem; height:.8rem; border-radius:50%; margin-right:.35rem; vertical-align:middle; }
+    .marcador-num { background:#fff; border:3px solid #333; border-radius:50%; width:28px; height:28px;
+                    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; }
+    .marcador-moto { font-size:22px; line-height:1; text-shadow:0 0 3px #fff; }
+    #toasts { position: fixed; top: 1rem; right: 1rem; z-index: 2000; width: 340px; }
+    .fila-demorada { background: rgba(220,53,69,.08) !important; }
+  </style>

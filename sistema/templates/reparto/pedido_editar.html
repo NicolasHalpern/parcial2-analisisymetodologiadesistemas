@@ -1,0 +1,196 @@
+{% extends "reparto/base.html" %}
+{# Edición completa de un pedido: cliente, dirección (con mapa), productos, cobro y logística #}
+{% block titulo %}Pedido #{{ pedido.id }}{% endblock %}
+{% block encabezado %}Editar pedido #{{ pedido.id }}{% endblock %}
+{% block contenido %}
+<div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+  <a href="{% url 'pedidos' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Pedidos</a>
+  <span class="badge estado-{{ pedido.estado }} fs-6">{{ pedido.get_estado_display }}</span>
+  {% if pedido.origen == 'WEB' %}<span class="badge text-bg-light border">🛒 Tienda online</span>{% endif %}
+  <span class="text-secondary small">Creado {{ pedido.creado|date:"d/m H:i" }}{% if pedido.cliente %} · cuenta {{ pedido.cliente.email }}{% endif %}</span>
+  <a href="{% url 'seguimiento' pedido.codigo %}" target="_blank" class="btn btn-sm btn-outline-dark ms-auto"><i class="bi bi-box-arrow-up-right"></i> Ver como cliente</a>
+</div>
+{% if pedido.estado == 'ENTREGADO' or pedido.estado == 'CANCELADO' %}
+  <div class="alert alert-warning py-2"><i class="bi bi-info-circle"></i> Este pedido ya está {{ pedido.get_estado_display|lower }}. Podés corregir datos, pero no cambia la ruta de nadie.</div>
+{% endif %}
+
+<form method="post" id="form-editar">
+  {% csrf_token %}
+  <input type="hidden" name="volver" value="{{ request.GET.volver|default:'/pedidos' }}">
+  <input type="hidden" name="items_json" id="items_json">
+  <input type="hidden" name="lat" id="lat" value="{{ pedido.lat|stringformat:'.6f' }}">
+  <input type="hidden" name="lng" id="lng" value="{{ pedido.lng|stringformat:'.6f' }}">
+
+  <div class="row g-3">
+    <!-- Columna izquierda: cliente y entrega -->
+    <div class="col-lg-6">
+      <div class="card card-primary card-outline h-100">
+        <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-person"></i> Cliente y entrega</h3></div>
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-7"><label class="form-label">Cliente *</label><input name="cliente_nombre" class="form-control" value="{{ pedido.cliente_nombre }}" required></div>
+            <div class="col-md-5"><label class="form-label">Teléfono</label><input name="cliente_telefono" class="form-control" value="{{ pedido.cliente_telefono }}"></div>
+            <div class="col-12">
+              <label class="form-label">Dirección *</label>
+              <div class="input-group">
+                <input name="direccion" id="direccion" class="form-control" value="{{ pedido.direccion }}" required>
+                <button class="btn btn-outline-secondary" type="button" id="btn-buscar"><i class="bi bi-search"></i> Ubicar</button>
+              </div>
+              <div class="form-text" id="estado-geo"></div>
+            </div>
+            <div class="col-12"><div id="mapa" class="mapa" style="height:300px"></div></div>
+            <div class="col-12"><label class="form-label">Notas para el repartidor</label><input name="notas" class="form-control" value="{{ pedido.notas }}"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Columna derecha: productos, cobro y logística -->
+    <div class="col-lg-6">
+      <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-basket"></i> Productos</h3></div>
+        <div class="card-body p-0">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>Producto</th><th style="width:80px">Cant.</th><th style="width:120px">Precio u.</th><th class="text-end">Importe</th><th></th></tr></thead>
+            <tbody id="tabla-items"></tbody>
+          </table>
+        </div>
+        <div class="card-footer">
+          <div class="input-group input-group-sm">
+            <select class="form-select" id="sel-producto"></select>
+            <button type="button" class="btn btn-outline-primary" id="btn-agregar"><i class="bi bi-plus-lg"></i> Agregar</button>
+          </div>
+          <!-- Solo se usa si el pedido no tiene productos (cargado a mano en el local) -->
+          <div id="caja-detalle" class="mt-2">
+            <label class="form-label small">Detalle (texto libre)</label>
+            <textarea name="detalle" rows="2" class="form-control form-control-sm">{{ pedido.detalle }}</textarea>
+            <label class="form-label small mt-1">Subtotal</label>
+            <input name="subtotal" type="number" min="0" step="50" class="form-control form-control-sm" value="{{ pedido.subtotal|stringformat:'.0f' }}" id="subtotal-libre">
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-cash-coin"></i> Cobro</h3></div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-6"><label class="form-label">Costo de envío</label><input name="costo_envio" id="costo_envio" type="number" min="0" step="50" class="form-control" value="{{ pedido.costo_envio|stringformat:'.0f' }}"></div>
+            <div class="col-6"><label class="form-label">Forma de pago</label>
+              <select name="forma_pago" class="form-select">{% for v, t in pagos %}<option value="{{ v }}" {% if v == pedido.forma_pago %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+          </div>
+          <div class="d-flex justify-content-between mt-3 small"><span>Subtotal</span><span id="t-sub"></span></div>
+          <div class="d-flex justify-content-between fw-bold fs-5"><span>Total</span><span id="t-total"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-scooter"></i> Logística</h3></div>
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-5"><label class="form-label">Estado</label>
+              <select name="estado" class="form-select">{% for v, t in estados %}<option value="{{ v }}" {% if v == pedido.estado %}selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+            <div class="col-md-7"><label class="form-label">Repartidor</label>
+              <select name="repartidor" class="form-select">
+                <option value="mantener" selected>Mantener: {{ pedido.repartidor|default:"sin asignar" }}</option>
+                <option value="auto">Automático (el que llega antes)</option>
+                <option value="ninguno">Sin repartidor</option>
+                {% for r in repartidores %}<option value="{{ r.id }}">{{ r.nombre_completo }}{% if not r.disponible %} (fuera de turno){% endif %}</option>{% endfor %}
+              </select></div>
+            <div class="col-md-5"><label class="form-label">Preparación (min)</label><input name="tiempo_preparacion_min" type="number" min="0" class="form-control" value="{{ pedido.tiempo_preparacion_min }}"></div>
+            <div class="col-md-7 small text-secondary d-flex align-items-end">Llega aprox.: <b class="ms-1">{{ pedido.hora_estimada|time:"H:i"|default:"—" }}</b>&nbsp;· orden en la ruta: {{ pedido.orden_ruta|default:"—" }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    <button class="btn btn-primary"><i class="bi bi-save"></i> Guardar cambios</button>
+    <a href="{% url 'pedidos' %}" class="btn btn-outline-secondary">Descartar</a>
+    <button type="button" class="btn btn-outline-danger ms-auto" data-bs-toggle="modal" data-bs-target="#modal-borrar"><i class="bi bi-trash"></i> Borrar pedido</button>
+  </div>
+</form>
+
+<!-- Confirmación de borrado -->
+<div class="modal fade" id="modal-borrar" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">¿Borrar el pedido #{{ pedido.id }}?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      Se elimina definitivamente, junto con sus productos y avisos, y el link de seguimiento del cliente deja de funcionar.
+      <div class="alert alert-info small mt-3 mb-0"><i class="bi bi-lightbulb"></i> Si el cliente se arrepintió, mejor elegí <b>Cancelado</b> en "Estado": el pedido queda en el historial y el cliente ve el aviso.</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No, volver</button>
+      <form method="post" action="{% url 'borrar_pedido' pedido.id %}" class="m-0">{% csrf_token %}
+        <input type="hidden" name="volver" value="/pedidos"><button class="btn btn-danger"><i class="bi bi-trash"></i> Sí, borrar</button>
+      </form>
+    </div>
+  </div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const plata = n => new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS', maximumFractionDigits: 0}).format(n);
+  const MENU = {{ menu_json|safe }};
+  let items = {{ items_json|safe }};          // renglones que se editan en pantalla
+
+  // ---------- Dirección + mapa (el mismo componente sincronizado de la carga de pedidos) ----------
+  const mapa = nuevoMapa('mapa', 15);
+  const dir = vincularDireccion({
+    mapa, input: document.getElementById('direccion'), estado: document.getElementById('estado-geo'),
+    alCambiar: (lat, lng) => {
+      document.getElementById('lat').value = lat === null || lat === undefined ? '' : lat.toFixed(6);
+      document.getElementById('lng').value = lat === null || lat === undefined ? '' : lng.toFixed(6);
+    },
+  });
+  dir.restaurar({{ pedido.lat|stringformat:".6f" }}, {{ pedido.lng|stringformat:".6f" }});
+  document.getElementById('btn-buscar').onclick = () => dir.buscar();
+
+  // ---------- Editor de productos ----------
+  const sel = document.getElementById('sel-producto');
+  sel.innerHTML = MENU.map(p => `<option value="${p.id}">${esc(p.emoji)} ${esc(p.nombre)} — ${plata(p.precio)}${p.disponible ? '' : ' (sin stock)'}</option>`).join('');
+
+  function pintar() {
+    const tbody = document.getElementById('tabla-items');
+    tbody.innerHTML = items.map((it, i) => `
+      <tr>
+        <td><div class="fw-semibold small">${esc(it.nombre)}</div>
+            <input class="form-control form-control-sm mt-1" placeholder="Aclaración" value="${esc(it.aclaracion)}" oninput="items[${i}].aclaracion=this.value"></td>
+        <td><input type="number" min="1" max="99" class="form-control form-control-sm" value="${it.cantidad}" oninput="items[${i}].cantidad=+this.value||1; totales()"></td>
+        <td><input type="number" min="0" step="50" class="form-control form-control-sm" value="${Math.round(it.precio)}" oninput="items[${i}].precio=+this.value||0; totales()"></td>
+        <td class="text-end small" id="imp-${i}"></td>
+        <td><button type="button" class="btn btn-sm btn-link text-danger" title="Quitar" onclick="items.splice(${i},1); pintar()"><i class="bi bi-x-lg"></i></button></td>
+      </tr>`).join('') || '<tr><td colspan="5" class="text-center text-secondary small py-3">Sin productos del menú. Usá el detalle de texto o agregá productos.</td></tr>';
+    // Si el pedido no tiene productos se edita el texto libre y el subtotal a mano
+    document.getElementById('caja-detalle').classList.toggle('d-none', items.length > 0);
+    totales();
+  }
+
+  function totales() {
+    items.forEach((it, i) => { const c = document.getElementById('imp-' + i); if (c) c.textContent = plata(it.precio * it.cantidad); });
+    const sub = items.length ? items.reduce((s, it) => s + it.precio * it.cantidad, 0) : +document.getElementById('subtotal-libre').value || 0;
+    const envio = +document.getElementById('costo_envio').value || 0;
+    document.getElementById('t-sub').textContent = plata(sub);
+    document.getElementById('t-total').textContent = plata(sub + envio);
+  }
+
+  document.getElementById('btn-agregar').onclick = () => {
+    const p = MENU.find(m => m.id === +sel.value); if (!p) return;
+    const ya = items.find(it => it.producto_id === p.id && !it.aclaracion);
+    if (ya) ya.cantidad++; else items.push({producto_id: p.id, nombre: p.nombre, precio: p.precio, cantidad: 1, aclaracion: ''});
+    pintar();
+  };
+  document.getElementById('costo_envio').oninput = totales;
+  document.getElementById('subtotal-libre').oninput = totales;
+
+  // Al guardar: los productos viajan como JSON y se exige que dirección y pin coincidan
+  document.getElementById('form-editar').addEventListener('submit', e => {
+    if (!document.getElementById('lat').value) {
+      e.preventDefault(); return alerta('La dirección escrita y el pin del mapa todavía no coinciden.', 'danger');
+    }
+    document.getElementById('items_json').value = JSON.stringify(items);
+  });
+  pintar();
+</script>
+{% endblock %}

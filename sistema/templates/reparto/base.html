@@ -1,0 +1,83 @@
+{# Esqueleto de las pantallas del admin (AdminLTE): barra superior, menú lateral y avisos. #}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block titulo %}Repartos{% endblock %} · {{ comercio_nombre }}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.11.0/styles/overlayscrollbars.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/css/adminlte.min.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  {% include "reparto/_estilos.html" %}
+  {% block head %}{% endblock %}
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <nav class="app-header navbar navbar-expand bg-body">
+    <div class="container-fluid">
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" data-lte-toggle="sidebar" href="#" role="button"><i class="bi bi-list"></i></a></li>
+        <li class="nav-item d-none d-md-block"><span class="nav-link fw-semibold">{% block encabezado %}{% endblock %}</span></li>
+      </ul>
+      <ul class="navbar-nav ms-auto align-items-center">
+        <li class="nav-item d-none d-sm-block"><span class="nav-link text-secondary small"><i class="bi bi-person-badge"></i> {{ request.user.get_username }}</span></li>
+        <li class="nav-item">
+          <form method="post" action="{% url 'salir' %}" class="m-0">{% csrf_token %}
+            <button class="btn btn-link nav-link" title="Cerrar sesión"><i class="bi bi-box-arrow-right"></i> <span class="d-none d-md-inline">Salir</span></button>
+          </form>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="{% url 'panel' %}" title="Alertas">
+            <i class="bi bi-bell-fill"></i>
+            <span class="navbar-badge badge text-bg-danger d-none" id="badge-alertas">0</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <aside class="app-sidebar bg-body-secondary shadow" data-bs-theme="dark">
+    <div class="sidebar-brand">
+      <a href="{% url 'panel' %}" class="brand-link">
+        <i class="bi bi-scooter fs-4 me-2"></i>
+        <span class="brand-text fw-light">{{ comercio_nombre }}</span>
+      </a>
+    </div>
+    <div class="sidebar-wrapper">
+      <nav class="mt-2">
+        <ul class="nav sidebar-menu flex-column" role="navigation">
+          <li class="nav-item"><a href="{% url 'panel' %}" class="nav-link {% if request.resolver_match.url_name == 'panel' %}active{% endif %}"><i class="nav-icon bi bi-speedometer2"></i><p>Panel en vivo</p></a></li>
+          <li class="nav-item"><a href="{% url 'pedidos' %}" class="nav-link {% if request.resolver_match.url_name == 'pedidos' %}active{% endif %}"><i class="nav-icon bi bi-bag-plus"></i><p>Pedidos</p></a></li>
+          <li class="nav-item"><a href="{% url 'repartidores' %}" class="nav-link {% if request.resolver_match.url_name == 'repartidores' %}active{% endif %}"><i class="nav-icon bi bi-people"></i><p>Repartidores</p></a></li>
+          <li class="nav-item"><a href="{% url 'menu' %}" class="nav-link {% if request.resolver_match.url_name == 'menu' %}active{% endif %}"><i class="nav-icon bi bi-journal-text"></i><p>Menú</p></a></li>
+          <li class="nav-header">CLIENTE</li>
+          <li class="nav-item"><a href="{% url 'tienda' %}" target="_blank" class="nav-link"><i class="nav-icon bi bi-shop"></i><p>Ver tienda online</p></a></li>
+        </ul>
+      </nav>
+    </div>
+  </aside>
+
+  <main class="app-main">
+    <div class="app-content pt-3">
+      <div class="container-fluid">
+        {% for m in messages %}
+          <div class="alert alert-{% if m.tags == 'error' %}danger{% else %}{{ m.tags }}{% endif %} alert-dismissible fade show">
+            {{ m }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+        {% endfor %}
+        {% block contenido %}{% endblock %}
+      </div>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+{% csrf_token %}
+
+<script src="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.11.0/browser/overlayscrollbars.browser.es6.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/admin-lte@4.10.0/dist/js/adminlte.min.js"></script>
+{% include "reparto/_comun_js.html" %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,101 @@
+{% extends "reparto/base_movil.html" %}
+{# Página pública del cliente: estado, hora estimada, cadete en el mapa y novedades. Se actualiza cada 5 s. #}
+{% block titulo %}Tu pedido #{{ pedido.id }}{% endblock %}
+{% block subtitulo %}Pedido #{{ pedido.id }}{% endblock %}
+{% block contenido %}
+<style>
+  .pasos { display:flex; justify-content:space-between; position:relative; margin: 1rem 0 .5rem; }
+  .pasos::before { content:''; position:absolute; top:18px; left:12%; right:12%; height:4px; background:#dee2e6; }
+  .paso { text-align:center; flex:1; position:relative; font-size:.85rem; color:#6c757d; }
+  .paso .c { width:40px; height:40px; border-radius:50%; background:#dee2e6; margin:0 auto .35rem; display:flex; align-items:center; justify-content:center; font-size:1.2rem; }
+  .paso.ok { color:#000; font-weight:600; } .paso.ok .c { background:#198754; color:#fff; }
+  .paso.actual .c { background:#0d6efd; color:#fff; box-shadow:0 0 0 6px rgba(13,110,253,.2); }
+</style>
+<div class="card mb-3 text-center">
+  <div class="card-body">
+    <div class="text-secondary small">Hola {{ pedido.cliente_nombre }}, tu pedido llega aprox.</div>
+    <div class="display-4 fw-bold" id="eta">--:--</div>
+    <div class="text-secondary" id="eta-min"></div>
+    <div class="pasos">
+      <div class="paso" id="p-PREPARACION"><div class="c"><i class="bi bi-box-seam"></i></div>En preparación</div>
+      <div class="paso" id="p-EN_CAMINO"><div class="c"><i class="bi bi-scooter"></i></div>En camino</div>
+      <div class="paso" id="p-ENTREGADO"><div class="c"><i class="bi bi-house-check"></i></div>Entregado</div>
+    </div>
+    <div class="small text-secondary" id="detalle-estado"></div>
+  </div>
+</div>
+<div class="card mb-3"><div class="card-body p-1"><div id="mapa" class="mapa"></div></div>
+  <div class="card-footer small text-secondary"><i class="bi bi-geo-alt"></i> {{ pedido.direccion }}</div></div>
+{% if pedido.items.all %}
+<div class="card mb-3"><div class="card-header small fw-semibold">Tu pedido</div>
+  <ul class="list-group list-group-flush small">
+    {% for i in pedido.items.all %}
+      <li class="list-group-item d-flex"><span class="me-auto">{{ i.cantidad }} × {{ i.nombre }}{% if i.aclaracion %} <span class="text-secondary">({{ i.aclaracion }})</span>{% endif %}</span><span class="plata" data-v="{{ i.importe|stringformat:'.2f' }}"></span></li>
+    {% endfor %}
+    <li class="list-group-item d-flex"><span class="me-auto text-secondary">Envío</span><span class="plata" data-v="{{ pedido.costo_envio|stringformat:'.2f' }}"></span></li>
+    <li class="list-group-item d-flex fw-bold"><span class="me-auto">Total · {{ pedido.get_forma_pago_display }}</span><span class="plata" data-v="{{ pedido.total|stringformat:'.2f' }}"></span></li>
+  </ul>
+</div>
+{% elif pedido.detalle %}
+<div class="card mb-3"><div class="card-body small"><b>Tu pedido:</b> {{ pedido.detalle }}</div></div>
+{% endif %}
+<div class="card"><div class="card-header small fw-semibold">Novedades</div><ul class="list-group list-group-flush small" id="novedades"></ul></div>
+<p class="text-center small text-secondary mt-3">Esta página se actualiza sola. No hace falta llamar 😉</p>
+<div class="text-center"><a href="{% url 'tienda' %}" class="btn btn-outline-dark rounded-pill"><i class="bi bi-shop"></i> Volver al menú</a></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CODIGO = '{{ pedido.codigo }}';
+  document.querySelectorAll('.plata').forEach(el => el.textContent =
+    new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS', maximumFractionDigits: 0}).format(parseFloat(el.dataset.v)));
+  // Queda guardado en "Mis pedidos" de la tienda
+  try { const l = JSON.parse(localStorage.getItem('mis_pedidos') || '[]');
+        if (!l.includes(CODIGO)) localStorage.setItem('mis_pedidos', JSON.stringify([CODIGO, ...l].slice(0, 10))); } catch (e) {}
+  const DESTINO = [{{ pedido.lat|stringformat:".6f" }}, {{ pedido.lng|stringformat:".6f" }}];
+  const mapa = nuevoMapa('mapa', 14);
+  L.marker(DESTINO, {icon: L.divIcon({className: '', html: '<div class="marcador-moto">🏠</div>', iconSize: [24, 24]})}).addTo(mapa).bindPopup('Tu dirección');
+  mapa.fitBounds([COMERCIO, DESTINO], {padding: [40, 40]});
+  let moto = null, linea = null, vistas = null, estadoPrevio = null;
+  const orden = ['PREPARACION', 'EN_CAMINO', 'ENTREGADO'];
+
+  // Consulta el estado del pedido y actualiza pasos, hora, mapa y novedades
+  async function refrescar() {
+    let d; try { d = await api('/api/seguimiento/' + CODIGO); } catch (e) { return; }
+    const p = d.pedido;
+    const i = orden.indexOf(p.estado);
+    orden.forEach((e, j) => {
+      const el = document.getElementById('p-' + e);
+      el.classList.toggle('ok', j < i || (j === i && e === 'ENTREGADO'));
+      el.classList.toggle('actual', j === i && e !== 'ENTREGADO');
+    });
+
+    const eta = document.getElementById('eta'), etaMin = document.getElementById('eta-min'), det = document.getElementById('detalle-estado');
+    if (p.estado === 'ENTREGADO') { eta.textContent = '✔ ' + p.entregado; etaMin.textContent = '¡Entregado! Gracias por tu compra.'; det.textContent = ''; }
+    else if (p.estado === 'CANCELADO') { eta.textContent = '—'; etaMin.textContent = 'El pedido fue cancelado. Comunicate con el comercio.'; }
+    else {
+      eta.textContent = p.hora_estimada || '--:--';
+      etaMin.textContent = p.minutos_restantes !== null ? `faltan ~${p.minutos_restantes} min` : 'Calculando…';
+      det.textContent = p.estado === 'EN_CAMINO'
+        ? `${p.repartidor || 'El repartidor'} está en camino` + (d.entregas_antes ? ` · ${d.entregas_antes} entrega(s) antes que la tuya` : ' · ¡sos la próxima entrega!')
+        : 'Estamos preparando tu pedido.';
+    }
+
+    if (d.repartidor) {
+      const pos = [d.repartidor.lat, d.repartidor.lng];
+      if (!moto) { moto = L.marker(pos, {icon: iconoMoto('#0d6efd'), zIndexOffset: 1000}).addTo(mapa).bindTooltip(d.repartidor.nombre); mapa.fitBounds([pos, DESTINO], {padding: [50, 50]}); }
+      else moto.setLatLng(pos);
+      if (linea) linea.setLatLngs([pos, DESTINO]); else linea = L.polyline([pos, DESTINO], {dashArray: '6 8', color: '#0d6efd'}).addTo(mapa);
+    } else if (moto) { mapa.removeLayer(moto); mapa.removeLayer(linea); moto = linea = null; }
+
+    const ul = document.getElementById('novedades');
+    ul.innerHTML = d.notificaciones.slice().reverse().map(n => `<li class="list-group-item"><span class="text-secondary">${n.hora}</span> ${n.mensaje}</li>`).join('')
+      || '<li class="list-group-item text-secondary">Recibimos tu pedido.</li>';
+    const ids = d.notificaciones.map(n => n.id);
+    if (vistas) d.notificaciones.filter(n => !vistas.includes(n.id)).forEach(n => alerta(n.mensaje, n.tipo, true));
+    vistas = ids;
+  }
+  refrescar();
+  setInterval(refrescar, 5000);
+</script>
+{% endblock %}

@@ -1,0 +1,163 @@
+{% extends "reparto/base.html" %}
+{# Panel en vivo del comercio: indicadores, mapa con cadetes y rutas, lista de envíos y alertas. Se actualiza cada 4 s desde /api/estado. #}
+{% block titulo %}Panel en vivo{% endblock %}
+{% block encabezado %}Panel en vivo · <span id="hora" class="text-secondary"></span>{% endblock %}
+{% block contenido %}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg"><div class="small-box text-bg-warning mb-0"><div class="inner"><h3 id="k-prep">0</h3><p>En preparación</p></div><i class="small-box-icon bi bi-box-seam"></i></div></div>
+  <div class="col-6 col-lg"><div class="small-box text-bg-primary mb-0"><div class="inner"><h3 id="k-camino">0</h3><p>En camino</p></div><i class="small-box-icon bi bi-scooter"></i></div></div>
+  <div class="col-6 col-lg"><div class="small-box text-bg-success mb-0"><div class="inner"><h3 id="k-entregados">0</h3><p>Entregados hoy</p></div><i class="small-box-icon bi bi-check2-circle"></i></div></div>
+  <div class="col-6 col-lg"><div class="small-box text-bg-info mb-0"><div class="inner"><h3 id="k-atiempo">–</h3><p>Entregados a tiempo</p></div><i class="small-box-icon bi bi-stopwatch"></i></div></div>
+  <div class="col-12 col-lg"><div class="small-box text-bg-danger mb-0"><div class="inner"><h3 id="k-demorados">0</h3><p>Demorados</p></div><i class="small-box-icon bi bi-exclamation-triangle"></i></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex align-items-center">
+        <h3 class="card-title mb-0"><i class="bi bi-geo-alt"></i> Mapa en tiempo real</h3>
+        <div class="ms-auto small" id="leyenda"></div>
+      </div>
+      <div class="card-body p-2"><div id="mapa" class="mapa"></div></div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-people"></i> Repartidores</h3></div>
+      <ul class="list-group list-group-flush" id="lista-repartidores"></ul>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-bell"></i> Alertas</h3></div>
+      <ul class="list-group list-group-flush small" id="lista-alertas" style="max-height:260px;overflow:auto"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header d-flex align-items-center">
+    <h3 class="card-title mb-0"><i class="bi bi-list-check"></i> Envíos</h3>
+    <a href="{% url 'pedidos' %}" class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg"></i> Nuevo pedido</a>
+  </div>
+  <div class="card-body p-0 table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead><tr><th>#</th><th>Cliente</th><th>Dirección</th><th>Estado</th><th>Repartidor</th><th>Orden</th><th>Llega</th><th class="text-end">Acciones</th></tr></thead>
+      <tbody id="tabla-pedidos"><tr><td colspan="8" class="text-center text-secondary py-4">Cargando…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const mapa = nuevoMapa('mapa', 13);
+  const capa = L.layerGroup().addTo(mapa);
+  let ultimaNotif = 0, primeraCarga = true, encuadrado = false, repartidores = [];
+
+  // Botones de cada fila según el estado del pedido
+  function acciones(p) {
+    let h = '';
+    if (p.estado === 'PREPARACION') {
+      h += `<button class="btn btn-sm btn-outline-primary" onclick="estado(${p.id},'EN_CAMINO')" title="Marcar en camino"><i class="bi bi-scooter"></i></button> `;
+      h += `<div class="btn-group"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" title="Reasignar"><i class="bi bi-arrow-left-right"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="#" onclick="reasignar(${p.id});return false">Automático (mejor opción)</a></li>
+              ${repartidores.filter(r => r.disponible).map(r => `<li><a class="dropdown-item" href="#" onclick="reasignar(${p.id},${r.id});return false"><span class="dot" style="background:${r.color}"></span>${r.nombre}</a></li>`).join('')}
+            </ul></div> `;
+    }
+    if (p.estado === 'EN_CAMINO' || p.estado === 'PREPARACION')
+      h += `<button class="btn btn-sm btn-outline-success" onclick="estado(${p.id},'ENTREGADO')" title="Marcar entregado"><i class="bi bi-check-lg"></i></button> `;
+    h += `<a class="btn btn-sm btn-outline-secondary" href="/pedidos/${p.id}/editar?volver=/panel" title="Editar o borrar"><i class="bi bi-pencil"></i></a> `;
+    h += `<a class="btn btn-sm btn-outline-dark" href="/seguimiento/${p.codigo}" target="_blank" title="Página de seguimiento del cliente"><i class="bi bi-link-45deg"></i></a>`;
+    return h;
+  }
+
+  async function estado(id, e) {
+    if (e === 'ENTREGADO' && !confirm('¿Confirmás que el pedido #' + id + ' fue entregado?')) return;
+    await api(`/api/pedidos/${id}/estado`, {estado: e}); refrescar();
+  }
+  async function reasignar(id, rid) { await api(`/api/pedidos/${id}/reasignar`, {repartidor_id: rid || null}); refrescar(); }
+  async function turno(id, valor) { await api(`/api/repartidores/${id}/turno`, {disponible: valor}); refrescar(); }
+
+  // Trae todo de /api/estado y redibuja indicadores, mapa, repartidores, tabla y alertas
+  async function refrescar() {
+    let d;
+    try { d = await api('/api/estado?desde_notif=' + ultimaNotif); } catch (e) { return; }
+    repartidores = d.repartidores;
+    document.getElementById('hora').textContent = d.ahora;
+    const k = d.resumen;
+    document.getElementById('k-prep').textContent = k.preparacion;
+    document.getElementById('k-camino').textContent = k.en_camino;
+    document.getElementById('k-entregados').textContent = k.entregados;
+    document.getElementById('k-atiempo').textContent = k.entregados ? Math.round(100 * k.a_tiempo / k.entregados) + '%' : '–';
+    document.getElementById('k-demorados').textContent = k.demorados;
+
+    const colorDe = Object.fromEntries(d.repartidores.map(r => [r.id, r.color]));
+    const activos = d.pedidos.filter(p => p.estado === 'PREPARACION' || p.estado === 'EN_CAMINO');
+
+    // ----- Mapa -----
+    capa.clearLayers();
+    const puntos = [COMERCIO];
+    d.repartidores.forEach(r => {
+      const suyos = activos.filter(p => p.repartidor_id === r.id).sort((a, b) => a.orden_ruta - b.orden_ruta);
+      const enCalle = suyos.some(p => p.estado === 'EN_CAMINO');
+      if (r.lat !== null && (enCalle || r.disponible)) {
+        L.marker([r.lat, r.lng], {icon: iconoMoto(r.color), zIndexOffset: 1000}).addTo(capa)
+          .bindTooltip(`<b>${r.nombre}</b><br>${r.situacion}<br><small>GPS ${r.ultima_ubicacion || '—'}</small>`);
+        puntos.push([r.lat, r.lng]);
+      }
+      if (suyos.length) {
+        const inicio = enCalle && r.lat !== null ? [r.lat, r.lng] : COMERCIO;
+        L.polyline([inicio, ...suyos.map(p => [p.lat, p.lng])], {color: r.color, weight: 4, opacity: .7, dashArray: enCalle ? null : '6 8'}).addTo(capa);
+      }
+    });
+    activos.forEach(p => {
+      const c = colorDe[p.repartidor_id] || '#999';
+      L.marker([p.lat, p.lng], {icon: iconoNumero(p.orden_ruta, p.demorado ? '#dc3545' : c)}).addTo(capa)
+        .bindPopup(`<b>#${p.id} ${p.cliente}</b><br>${p.direccion}<br>${p.estado_txt} · llega ${p.hora_estimada || '—'}<br>${p.repartidor || '<span class=text-danger>Sin repartidor</span>'}`);
+      puntos.push([p.lat, p.lng]);
+    });
+    if (!encuadrado && puntos.length > 1) { mapa.fitBounds(puntos, {padding: [40, 40]}); encuadrado = true; }
+    document.getElementById('leyenda').innerHTML = d.repartidores.filter(r => r.disponible)
+      .map(r => `<span class="me-2"><span class="dot" style="background:${r.color}"></span>${r.nombre}</span>`).join('');
+
+    // ----- Repartidores -----
+    document.getElementById('lista-repartidores').innerHTML = d.repartidores.map(r => `
+      <li class="list-group-item d-flex align-items-center">
+        <span class="dot" style="background:${r.color}"></span>
+        <div class="me-auto"><div class="fw-semibold">${r.nombre}</div>
+          <small class="text-secondary">${r.situacion} · ${r.pedidos.length} pedido(s)</small></div>
+        <a class="btn btn-sm btn-link" href="${r.app_url}" target="_blank" title="Link de la app del repartidor (secreto)"><i class="bi bi-phone"></i></a>
+        <div class="form-check form-switch m-0" title="En turno">
+          <input class="form-check-input" type="checkbox" ${r.disponible ? 'checked' : ''} onchange="turno(${r.id}, this.checked)">
+        </div>
+      </li>`).join('') || '<li class="list-group-item text-secondary">No hay repartidores. <a href="{% url "repartidores" %}">Agregar</a></li>';
+
+    // ----- Tabla -----
+    document.getElementById('tabla-pedidos').innerHTML = d.pedidos.map(p => `
+      <tr class="${p.demorado ? 'fila-demorada' : ''}">
+        <td>${p.id}</td>
+        <td>${p.origen === 'WEB' ? '<span class="badge text-bg-light border" title="Pedido de la tienda online">🛒 web</span> ' : ''}${p.cliente}<br><small class="text-secondary">${p.telefono || ''}</small>${p.detalle ? `<br><small class="text-secondary">${p.detalle}</small>` : ''}${p.total ? `<br><small class="fw-semibold">$${Math.round(p.total).toLocaleString('es-AR')} · ${p.forma_pago}</small>` : ''}</td>
+        <td>${p.direccion}${p.notas ? `<br><small class="text-secondary">${p.notas}</small>` : ''}</td>
+        <td><span class="badge estado-${p.estado}">${p.estado_txt}</span>${p.demorado ? ' <span class="badge text-bg-danger">Demorado</span>' : ''}</td>
+        <td>${p.repartidor ? `<span class="dot" style="background:${colorDe[p.repartidor_id]}"></span>${p.repartidor}` : '<span class="text-danger">Sin asignar</span>'}</td>
+        <td>${p.orden_ruta ?? '—'}</td>
+        <td>${p.estado === 'ENTREGADO' ? '✔ ' + p.entregado : (p.hora_estimada ? `${p.hora_estimada} <small class="text-secondary">(${p.minutos_restantes} min)</small>` : '—')}</td>
+        <td class="text-end text-nowrap">${acciones(p)}</td>
+      </tr>`).join('') || '<tr><td colspan="8" class="text-center text-secondary py-4">Todavía no hay pedidos hoy.</td></tr>';
+
+    // ----- Alertas -----
+    const lista = document.getElementById('lista-alertas');
+    d.notificaciones.forEach(n => {
+      lista.insertAdjacentHTML('afterbegin', `<li class="list-group-item list-group-item-${n.tipo}"><small class="text-secondary">${n.hora}</small> ${n.mensaje}</li>`);
+      if (!primeraCarga) alerta(n.mensaje, n.tipo, true);
+      ultimaNotif = Math.max(ultimaNotif, n.id);
+    });
+    const badge = document.getElementById('badge-alertas');
+    badge.textContent = k.demorados; badge.classList.toggle('d-none', !k.demorados);
+    primeraCarga = false;
+  }
+
+  refrescar();
+  setInterval(refrescar, 4000);
+</script>
+{% endblock %}
